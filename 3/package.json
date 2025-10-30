@@ -1,0 +1,26 @@
+{
+  "name": "ha-time-cluster",
+  "version": "1.0.0",
+  "description": "HA Time Service Cluster with Bully Algorithm",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "server1": "ts-node src/time_server.ts 127.0.0.1",
+    "server2": "ts-node src/time_server.ts 127.0.0.2",
+    "server3": "ts-node src/time_server.ts 127.0.0.3",
+    "proxy": "ts-node src/proxy_server.ts",
+    "client": "ts-node src/client.ts",
+    "clean": "rm -rf dist coordinator.txt"
+  },
+  "keywords": ["udp", "ha", "cluster", "bully"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2",
+    "@types/node": "^20.10.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

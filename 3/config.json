@@ -1,0 +1,12 @@
+{
+  "servers": [
+    { "ip": "127.0.0.1", "port": 5555 },
+    { "ip": "127.0.0.2", "port": 5555 },
+    { "ip": "127.0.0.3", "port": 5555 }
+  ],
+  "proxyPort": 5555,
+  "proxyIp": "127.0.0.4",
+  "healthCheckInterval": 5000,
+  "healthCheckTimeout": 1000,
+  "maxFailedChecks": 3
+}
