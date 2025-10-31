@@ -27,7 +27,7 @@ class TimeServer {
         this.socket = dgram.createSocket('udp4');
         this.myIp = ip;
         this.myPort = port;
-        this.config = JSON.parse(fs.readFileSync('config.json', 'utf-8'));
+        this.config = JSON.parse(fs.readFileSync("D:\\Desktop\\labs\\rios\\3\\config.json", 'utf-8'));
     }
 
     start() {
@@ -93,11 +93,18 @@ class TimeServer {
         this.socket.send('HEALTH_RESPONSE', rinfo.port, rinfo.address);
     }
 
+    private ipSum(ip: string): number {
+        return ip.split('.').map(Number).reduce((a, b) => a + b, 0);
+    }
+
     private startElection() {
+        if (this.electionInProgress) return;
+
         console.log(`[${this.myIp}] Start election...`);
         this.electionInProgress = true;
 
-        const higherServers = this.config.servers.filter(s => s.ip > this.myIp);
+        const mySum = this.ipSum(this.myIp);
+        const higherServers = this.config.servers.filter(s => this.ipSum(s.ip) > mySum);
 
         if (higherServers.length === 0) {
             this.becomeCoordinator();
@@ -110,20 +117,31 @@ class TimeServer {
             this.socket.send(`ELECTION:${this.myIp}`, server.port, server.ip);
         });
 
-        setTimeout(() => {
+        const okTimeout = setTimeout(() => {
             if (!okReceived && this.electionInProgress) {
                 this.becomeCoordinator();
             }
         }, 2000);
+
+        const handleOk = (msg: Buffer) => {
+            if (msg.toString().startsWith('OK')) {
+                okReceived = true;
+                clearTimeout(okTimeout);
+                this.electionInProgress = false;
+                this.isCoordinator = false;
+                this.socket.off('message', handleOk);
+            }
+        };
+
+        this.socket.on('message', handleOk);
     }
 
     private handleElection(senderIp: string, rinfo: dgram.RemoteInfo) {
         console.log(`[${this.myIp}] Received message ELECTION by ${senderIp}`);
-
         this.socket.send('OK', rinfo.port, rinfo.address);
 
-        if (!this.electionInProgress) {
-            this.startElection();
+        if (!this.electionInProgress && !this.isCoordinator) {
+            setTimeout(() => this.startElection(), 1000);
         }
     }
 
@@ -146,6 +164,29 @@ class TimeServer {
         });
 
         fs.writeFileSync('coordinator.txt', this.myIp);
+
+        this.notifyProxyAboutCoordinator();
+    }
+
+    private notifyProxyAboutCoordinator() {
+        try {
+            const config = JSON.parse(fs.readFileSync('config.json', 'utf-8'));
+            if (!config.proxyIp || !config.proxyPort) {
+                console.warn(`[${this.myIp}] Proxy config not found in config.json`);
+                return;
+            }
+
+            const message = `COORDINATOR_ANNOUNCE:${this.myIp}:${this.myPort}`;
+            this.socket.send(message, config.proxyPort, config.proxyIp, (err) => {
+                if (err) {
+                    console.error(`[${this.myIp}] Failed to notify proxy:`, err);
+                } else {
+                    console.log(`[${this.myIp}] Notified proxy (${config.proxyIp}:${config.proxyPort}) that I am coordinator`);
+                }
+            });
+        } catch (err) {
+            console.error(`[${this.myIp}] Error while notifying proxy:`, err);
+        }
     }
 
     private handleCoordinatorAnnouncement(coordinatorIp: string) {
@@ -154,15 +195,19 @@ class TimeServer {
         this.isCoordinator = false;
         this.electionInProgress = false;
         this.failedChecks = 0;
+
+        setTimeout(() => {}, this.config.healthCheckInterval * 2);
     }
 
     private checkCoordinator() {
-        if (this.isCoordinator || !this.coordinatorIp) return;
+        if (this.isCoordinator || this.electionInProgress || !this.coordinatorIp) return;
+
+        const server = this.config.servers.find(s => s.ip === this.coordinatorIp);
+        if (!server) return;
 
         const timeout = setTimeout(() => {
             this.failedChecks++;
-            console.log(`[${this.myIp}] Coordinator not responses (${this.failedChecks}/${this.config.maxFailedChecks})`);
-
+            console.log(`[${this.myIp}] Coordinator not responding (${this.failedChecks}/${this.config.maxFailedChecks})`);
             if (this.failedChecks >= this.config.maxFailedChecks) {
                 console.log(`[${this.myIp}] Coordinator not available, start election...`);
                 this.coordinatorIp = null;
@@ -171,18 +216,19 @@ class TimeServer {
             }
         }, this.config.healthCheckTimeout);
 
-        const server = this.config.servers.find(s => s.ip === this.coordinatorIp);
-        if (server) {
-            this.socket.send('HEALTH_CHECK', server.port, server.ip);
-        }
-
-        this.socket.once('message', (msg) => {
-            if (msg.toString() === 'HEALTH_RESPONSE') {
+        const listener = (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+            if (rinfo.address === server.ip && msg.toString() === 'HEALTH_RESPONSE') {
                 clearTimeout(timeout);
                 this.failedChecks = 0;
+                this.socket.off('message', listener);
             }
-        });
+        };
+
+        this.socket.on('message', listener);
+        this.socket.send('HEALTH_CHECK', server.port, server.ip);
     }
+
+
 }
 
 const serverIp = process.argv[2];

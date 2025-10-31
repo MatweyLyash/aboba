@@ -33,6 +33,13 @@ class ProxyServer {
     private handleMessage(msg: Buffer, rinfo: dgram.RemoteInfo) {
         const message = msg.toString();
 
+        if (message.startsWith('COORDINATOR_ANNOUNCE')) {
+            const [, ip, port] = message.split(':');
+            fs.writeFileSync('coordinator.txt', ip);
+            console.log(`[PROXY] New coordinator announced: ${ip}:${port}`);
+            return;
+        }
+
         if (message.startsWith('TIME:')) {
             const requestKey = `${rinfo.address}:${rinfo.port}`;
             const clientInfo = this.pendingRequests.get(requestKey);
